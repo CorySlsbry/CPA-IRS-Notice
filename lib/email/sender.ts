@@ -161,7 +161,7 @@ export async function sendEmail(args: SendArgs): Promise<SendResult> {
 }
 
 function unsubscribeUrl(firmId: string, email: string): string {
-  const base = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+  const base = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
   const token = Buffer.from(`${firmId}:${email}`).toString('base64url');
   return `${base}/api/track/unsubscribe?t=${token}`;
 }
