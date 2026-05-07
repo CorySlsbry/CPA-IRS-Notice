@@ -2,10 +2,12 @@ import type { NextConfig } from 'next';
 
 const config: NextConfig = {
   reactStrictMode: true,
+  // Cloud Run / Docker: emit a self-contained Node server.
+  output: 'standalone',
   images: {
     remotePatterns: [
-      { protocol: 'https', hostname: '**.supabase.co' },
       { protocol: 'https', hostname: 'storage.googleapis.com' },
+      { protocol: 'https', hostname: '*.googleapis.com' },
       { protocol: 'https', hostname: 'images.unsplash.com' },
     ],
   },
@@ -38,13 +40,12 @@ const config: NextConfig = {
     ];
   },
   async rewrites() {
-    return [
-      { source: '/track.js', destination: '/api/track/script' },
-    ];
+    return [{ source: '/track.js', destination: '/api/track/script' }];
   },
   experimental: {
     serverActions: { bodySizeLimit: '10mb' },
   },
+  serverExternalPackages: ['firebase-admin', 'pg'],
 };
 
 export default config;

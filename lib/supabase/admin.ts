@@ -1,23 +1,16 @@
-import { createClient } from '@supabase/supabase-js';
-import type { Database } from './database.types';
-
 /**
- * Service-role Supabase client. Bypasses RLS. ONLY use server-side, in
- * route handlers, cron jobs, or webhooks. Never expose to the client.
+ * COMPATIBILITY SHIM (post-migration to Cloud SQL Postgres + Firebase Auth).
  *
- * Always pass an explicit `firmId` filter when querying tenant data.
+ * This file used to expose a Supabase service-role client. Now it returns a
+ * tiny Supabase-compatible query builder backed by `pg` (lib/db/) so the
+ * 40+ consumer files don't have to change shape. The function name is kept
+ * as `getSupabaseAdmin()` to minimize diff churn — the underlying transport
+ * is Cloud SQL Postgres via lib/db.
  */
-let _admin: ReturnType<typeof createClient<Database>> | null = null;
 
-export function getSupabaseAdmin() {
-  if (_admin) return _admin;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error('SUPABASE_SERVICE_ROLE_KEY missing — admin client unavailable');
-  }
-  _admin = createClient<Database>(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  return _admin;
+import { getPool } from '@/lib/db/pool';
+import { clientFor, type QueryBuilderClient } from '@/lib/db/query-builder';
+
+export function getSupabaseAdmin(): QueryBuilderClient {
+  return clientFor(getPool());
 }

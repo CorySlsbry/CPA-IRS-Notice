@@ -1,0 +1,14 @@
+.git
+.github
+.next
+node_modules
+*.log
+.env
+.env.local
+.env*.local
+.vscode
+.idea
+coverage
+playwright-report
+test-results
+.DS_Store

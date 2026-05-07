@@ -1,5 +1,6 @@
--- NoticeReply core schema. Multi-tenant via firm_id with RLS on every table.
--- Service-role bypasses RLS for cron/webhook/admin paths.
+-- NoticeReply core schema. Multi-tenant via firm_id. Filters live in app code
+-- (we connect via a single application role; RLS is provided as an opt-in
+-- guardrail in 0002_rls.sql but is not the primary security model).
 
 create extension if not exists "uuid-ossp";
 create extension if not exists "pgcrypto";
@@ -34,7 +35,22 @@ create type workflow_archetype as enum ('short_term','long_term','evergreen');
 create type workflow_status as enum ('draft','active','paused','archived');
 create type workflow_run_status as enum ('running','waiting','completed','failed','exited');
 
--- ─── Firms / users ────────────────────────────────────────────────────────────
+-- ─── Users (replaces Supabase auth.users) ─────────────────────────────────────
+-- One row per Firebase Auth user. firebase_uid is the canonical external id.
+create table users (
+  id uuid primary key default gen_random_uuid(),
+  firebase_uid text unique not null,
+  email citext unique,
+  email_verified boolean not null default false,
+  full_name text,
+  avatar_url text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index idx_users_email on users(email);
+
+-- ─── Firms ────────────────────────────────────────────────────────────────────
 create table firms (
   id uuid primary key default gen_random_uuid(),
   name text not null,
@@ -56,7 +72,7 @@ create table firms (
 
 create table firm_users (
   firm_id uuid not null references firms(id) on delete cascade,
-  user_id uuid not null references auth.users(id) on delete cascade,
+  user_id uuid not null references users(id) on delete cascade,
   role user_role not null default 'member',
   invited_at timestamptz,
   joined_at timestamptz not null default now(),
@@ -64,15 +80,6 @@ create table firm_users (
 );
 
 create index idx_firm_users_user on firm_users(user_id);
-
--- Helper: which firms can the current authed user see?
-create or replace function current_firm_ids()
-returns setof uuid
-language sql stable security definer
-set search_path = public
-as $$
-  select firm_id from firm_users where user_id = auth.uid()
-$$;
 
 -- ─── Taxpayer clients (encrypted PII) ─────────────────────────────────────────
 create table clients (
@@ -108,7 +115,7 @@ create table notices (
   raw_image_pages jsonb,
   classification_json jsonb,
   status notice_status not null default 'uploaded',
-  uploaded_by uuid references auth.users(id) on delete set null,
+  uploaded_by uuid references users(id) on delete set null,
   uploaded_at timestamptz not null default now(),
   classified_at timestamptz,
   drafted_at timestamptz,
@@ -132,7 +139,7 @@ create table responses (
   draft_prompt_version text,
   draft_cost_cents int default 0,
   irc_citations text[],
-  reviewed_by uuid references auth.users(id),
+  reviewed_by uuid references users(id),
   reviewed_at timestamptz,
   signed_pdf_url text,
   mailed_at timestamptz,
@@ -209,7 +216,7 @@ create table contact_tags (
   tag_id uuid not null references tags(id) on delete cascade,
   firm_id uuid not null references firms(id) on delete cascade,
   added_at timestamptz not null default now(),
-  added_by uuid references auth.users(id),
+  added_by uuid references users(id),
   primary key (contact_id, tag_id)
 );
 
@@ -224,7 +231,7 @@ create table segments (
   filter_json jsonb not null,
   contact_count int default 0,
   contact_count_refreshed_at timestamptz,
-  created_by uuid references auth.users(id),
+  created_by uuid references users(id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -255,7 +262,7 @@ create table deals (
   status deal_status not null default 'open',
   expected_close_date date,
   closed_at timestamptz,
-  owner_id uuid references auth.users(id),
+  owner_id uuid references users(id),
   custom_fields jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -273,7 +280,7 @@ create table activities (
   type activity_type not null,
   payload jsonb not null default '{}'::jsonb,
   occurred_at timestamptz not null default now(),
-  actor_id uuid references auth.users(id)
+  actor_id uuid references users(id)
 );
 
 create index idx_activities_firm_occurred on activities(firm_id, occurred_at desc);
@@ -285,7 +292,7 @@ create table notes (
   firm_id uuid not null references firms(id) on delete cascade,
   contact_id uuid references contacts(id) on delete cascade,
   body text not null,
-  author_id uuid references auth.users(id),
+  author_id uuid references users(id),
   created_at timestamptz not null default now()
 );
 
@@ -297,8 +304,8 @@ create table tasks (
   body text,
   due_at timestamptz,
   completed_at timestamptz,
-  assignee_id uuid references auth.users(id),
-  created_by uuid references auth.users(id),
+  assignee_id uuid references users(id),
+  created_by uuid references users(id),
   created_at timestamptz not null default now()
 );
 
@@ -322,7 +329,8 @@ create table sending_domains (
   created_at timestamptz not null default now()
 );
 
-create unique index idx_sending_domains_firm_domain on sending_domains(coalesce(firm_id, '00000000-0000-0000-0000-000000000000'::uuid), domain, category);
+create unique index idx_sending_domains_firm_domain
+  on sending_domains(coalesce(firm_id, '00000000-0000-0000-0000-000000000000'::uuid), domain, category);
 
 create table email_templates (
   id uuid primary key default gen_random_uuid(),
@@ -352,7 +360,7 @@ create table campaigns (
   scheduled_at timestamptz,
   sent_at timestamptz,
   status campaign_status not null default 'draft',
-  created_by uuid references auth.users(id),
+  created_by uuid references users(id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -447,7 +455,7 @@ create table workflows (
   trigger_json jsonb not null,
   graph_json jsonb not null default '{"nodes":[],"edges":[]}'::jsonb,
   version int not null default 1,
-  created_by uuid references auth.users(id),
+  created_by uuid references users(id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -618,7 +626,7 @@ do $$
 declare t text;
 begin
   for t in select unnest(array[
-    'firms','clients','responses','companies','contacts','segments','deals',
+    'firms','users','clients','responses','companies','contacts','segments','deals',
     'email_templates','campaigns','workflows','forms'
   ])
   loop

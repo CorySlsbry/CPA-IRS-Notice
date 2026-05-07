@@ -7,14 +7,27 @@ export const metadata = { title: 'Analytics' };
 
 export default async function AnalyticsPage() {
   const sb = await createSupabaseServerClient();
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return null;
+
+  // Resolve current firm via firm_users.
+  const membership = await sb
+    .from('firm_users')
+    .select('firm_id')
+    .eq('user_id', user.id)
+    .order('joined_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const firmId = (membership.data as { firm_id: string } | null)?.firm_id;
+
   const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
 
   const [{ count: sessionsCount }, { count: pvCount }, { data: topPaths }, { data: utmBreakdown }, { data: recent }] = await Promise.all([
-    sb.from('sessions').select('id', { count: 'exact', head: true }).gte('started_at', since),
-    sb.from('pageviews').select('id', { count: 'exact', head: true }).gte('occurred_at', since),
-    sb.rpc('top_pageviews_7d').select('*').limit(8),
-    sb.rpc('utm_breakdown_7d').select('*').limit(8),
-    sb.from('sessions').select('id, started_at, utm_source, landing_path, country, device').order('started_at', { ascending: false }).limit(10),
+    sb.from('sessions').select('id', { count: 'exact', head: true }).eq('firm_id', firmId).gte('started_at', since),
+    sb.from('pageviews').select('id', { count: 'exact', head: true }).eq('firm_id', firmId).gte('occurred_at', since),
+    sb.rpc('top_pageviews_7d', { p_firm_id: firmId }).limit(8),
+    sb.rpc('utm_breakdown_7d', { p_firm_id: firmId }).limit(8),
+    sb.from('sessions').select('id, started_at, utm_source, landing_path, country, device').eq('firm_id', firmId).order('started_at', { ascending: false }).limit(10),
   ]);
 
   return (

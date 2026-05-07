@@ -1,8 +1,9 @@
--- Helper: bootstrap a new firm with default starter assets (pipeline, tags,
--- starter workflow templates). Called from auth.users insert trigger.
+-- seed_starter_assets(firm_id) is called explicitly from the app's
+-- /api/auth/bootstrap route on first signup. Replaces the
+-- on-auth.users-insert trigger pattern that only existed in Supabase.
 
 create or replace function seed_starter_assets(p_firm_id uuid)
-returns void language plpgsql security definer set search_path = public as $$
+returns void language plpgsql as $$
 begin
   -- Default pipeline
   insert into pipelines (firm_id, name, is_default, stages)
@@ -116,24 +117,6 @@ begin
   );
 end $$;
 
--- Auto-create a personal firm for new auth.users on signup.
-create or replace function handle_new_user()
-returns trigger language plpgsql security definer set search_path = public as $$
-declare v_firm_id uuid;
-begin
-  insert into firms (name, slug)
-  values (
-    coalesce(new.raw_user_meta_data->>'firm_name', split_part(new.email,'@',1) || ' CPA'),
-    substring(md5(new.id::text || extract(epoch from now())::text), 1, 12)
-  )
-  returning id into v_firm_id;
-
-  insert into firm_users (firm_id, user_id, role) values (v_firm_id, new.id, 'owner');
-  perform seed_starter_assets(v_firm_id);
-  return new;
-end $$;
-
-drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute function handle_new_user();
+-- The auth.users trigger we used to install on Supabase is GONE.
+-- Bootstrap happens via /api/auth/bootstrap (Firebase ID token verify
+-- + transactional users + firms + firm_users + seed_starter_assets()).

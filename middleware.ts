@@ -1,35 +1,16 @@
-import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 /**
- * Refreshes the auth session cookie on every request and gates the (app)
- * route group behind authentication. Tracking + public API routes pass
- * through untouched.
+ * Lightweight auth gate for the (app) route group. Cloud Run middleware runs
+ * on the Edge runtime, where Firebase Admin can't initialize, so we don't
+ * verify the session cookie cryptographically here — we just check that one
+ * is present and let the page-level loader do the real verification.
+ *
+ * The real auth check happens in app/(app)/layout.tsx via getCurrentUser().
  */
-export async function middleware(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request });
+const SESSION_COOKIE = '__Secure-nr-session';
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-          supabaseResponse = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options),
-          );
-        },
-      },
-    },
-  );
-
-  const { data: { user } } = await supabase.auth.getUser();
-
+export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const isAppRoute =
     pathname.startsWith('/dashboard') ||
@@ -45,22 +26,20 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/tags') ||
     pathname.startsWith('/settings');
 
-  if (isAppRoute && !user) {
+  if (!isAppRoute) return NextResponse.next();
+
+  const cookie = request.cookies.get(SESSION_COOKIE)?.value;
+  if (!cookie) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     url.searchParams.set('next', pathname);
     return NextResponse.redirect(url);
   }
-
-  return supabaseResponse;
+  return NextResponse.next();
 }
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for static files, images, the tracking
-     * script, public api endpoints, and webhooks.
-     */
-    '/((?!_next/static|_next/image|favicon.ico|track.js|api/track|api/public|api/webhooks|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|track.js|api/track|api/public|api/webhooks|api/auth|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 };

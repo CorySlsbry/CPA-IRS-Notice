@@ -23,8 +23,8 @@ export function SignupForm({ prefilledEmail, plan }: Props) {
     e.preventDefault();
     setSubmitting(true);
     try {
-      const supabase = createSupabaseBrowserClient();
-      const { data, error } = await supabase.auth.signUp({
+      const sb = createSupabaseBrowserClient();
+      const { data, error } = await sb.auth.signUp({
         email,
         password,
         options: {
@@ -33,18 +33,17 @@ export function SignupForm({ prefilledEmail, plan }: Props) {
             signer_name: signerName,
             initial_plan: plan ?? 'founding',
           },
-          emailRedirectTo: `${window.location.origin}/dashboard`,
         },
       });
       if (error) {
         toast.error(error.message);
         return;
       }
-      if (data.session) {
+      if (data.user) {
         router.push('/dashboard');
+        router.refresh();
         return;
       }
-      toast.success('Check your inbox to confirm — your trial starts on click.');
     } finally {
       setSubmitting(false);
     }
