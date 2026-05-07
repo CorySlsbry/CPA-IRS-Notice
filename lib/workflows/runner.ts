@@ -336,6 +336,45 @@ async function executeAction(
       return { kind: 'done', value };
     }
 
+    case 'post_to_social': {
+      // Queue a social post (immediate or delayed). The post-runner cron picks it up.
+      let scheduledAt = new Date();
+      if (spec.delay) {
+        const ms =
+          spec.delay.unit === 'minutes'
+            ? spec.delay.amount * 60_000
+            : spec.delay.unit === 'hours'
+              ? spec.delay.amount * 3_600_000
+              : spec.delay.amount * 86_400_000;
+        scheduledAt = new Date(Date.now() + ms);
+      }
+      const { data: account } = await supabase
+        .from('social_accounts')
+        .select('id, platform, status')
+        .eq('id', spec.accountId)
+        .eq('firm_id', firmId)
+        .maybeSingle();
+      if (!account) {
+        return { kind: 'done', value: { skipped: 'account_not_found' } };
+      }
+      const { data: post } = await supabase
+        .from('social_posts')
+        .insert({
+          firm_id: firmId,
+          account_id: account.id,
+          platform: account.platform,
+          body: spec.body,
+          media_urls: spec.mediaUrls ?? null,
+          link_url: spec.linkUrl ?? null,
+          scheduled_at: scheduledAt.toISOString(),
+          status: 'scheduled',
+          workflow_run_id: runId,
+        })
+        .select('id')
+        .single();
+      return { kind: 'done', value: { post_id: post?.id, scheduled_at: scheduledAt.toISOString() } };
+    }
+
     case 'end':
       return { kind: 'exit' };
   }

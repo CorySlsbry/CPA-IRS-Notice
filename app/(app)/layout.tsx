@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { Activity, FileText, Inbox, LayoutDashboard, Mail, Network, Settings, Tag, Users, Workflow } from 'lucide-react';
+import { Activity, FileText, Inbox, LayoutDashboard, Mail, Megaphone, Network, Settings, Tag, Users, Workflow } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { LogoutButton } from './logout-button';
 
@@ -56,6 +56,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <NavItem href="/campaigns" icon={Mail} label="Campaigns" />
           <NavItem href="/workflows" icon={Workflow} label="Workflows" />
           <NavItem href="/forms" icon={Inbox} label="Forms" />
+          <NavItem href="/social" icon={Megaphone} label="Social" />
           <NavSection label="Analytics" />
           <NavItem href="/analytics" icon={Activity} label="Analytics" />
           <NavSection label="Account" />

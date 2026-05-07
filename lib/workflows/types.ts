@@ -92,6 +92,20 @@ export const actionSchemas = {
     prompt: z.string(),
     expectedOutputShape: z.record(z.string(), z.unknown()),
   }),
+  post_to_social: z.object({
+    action: z.literal('post_to_social'),
+    accountId: z.string().uuid(),
+    body: z.string().min(1).max(5000),
+    mediaUrls: z.array(z.string().url()).max(10).optional(),
+    linkUrl: z.string().url().optional(),
+    /** Schedule N minutes/hours/days from when this node fires. Omit to post immediately. */
+    delay: z
+      .object({
+        amount: z.number().int().nonnegative(),
+        unit: z.enum(['minutes', 'hours', 'days']),
+      })
+      .optional(),
+  }),
   end: z.object({ action: z.literal('end') }),
 } as const;
 
@@ -106,4 +120,5 @@ export type ActionSpec =
   | z.infer<typeof actionSchemas.branch>
   | z.infer<typeof actionSchemas.webhook>
   | z.infer<typeof actionSchemas.ai_step>
+  | z.infer<typeof actionSchemas.post_to_social>
   | z.infer<typeof actionSchemas.end>;
