@@ -4,6 +4,24 @@ Run from the repo root in order. Each script is idempotent (safe to re-run).
 
 ## 1. `provision-gcp.sh`
 
+(see below)
+
+## 1b. `create-cloud-sql.sh`
+
+Creates the cheapest viable Cloud SQL Postgres instance (~$25/mo on us-west3):
+- Postgres 16, db-g1-small Enterprise, 10GB SSD
+- Daily backup at 09:00, no point-in-time recovery, no HA
+- No public IP — connections only via Cloud SQL Auth Proxy
+- Generates strong root + app passwords, saves both to `~/.noticereply-credentials` (chmod 600)
+- Creates `noticereply` database + `app` user
+- Writes the DATABASE_URL connection string to Secret Manager
+
+```bash
+bash scripts/create-cloud-sql.sh
+```
+
+Takes 5-10 min. Run once. Re-run after deletion.
+
 Creates all GCP resources NoticeReply needs:
 - Enables APIs
 - Creates Artifact Registry repo (`noticereply` in `us-west3`)

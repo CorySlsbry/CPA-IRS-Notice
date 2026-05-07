@@ -21,8 +21,20 @@ USER="app"
 CONN_NAME="${PROJECT}:${REGION}:${INSTANCE}"
 
 if [ -z "${PG_PASSWORD:-}" ]; then
-  echo "PG_PASSWORD env var required."
-  echo "Usage: PG_PASSWORD=<pwd> bash scripts/migrate-db.sh"
+  # Try to source from the credentials file the create-cloud-sql.sh script wrote
+  CREDS="$HOME/.noticereply-credentials"
+  if [ -f "$CREDS" ]; then
+    # shellcheck disable=SC1090
+    source "$CREDS"
+    PG_PASSWORD="${CLOUDSQL_APP_PASSWORD:-}"
+  fi
+fi
+
+if [ -z "${PG_PASSWORD:-}" ]; then
+  echo "PG_PASSWORD not found."
+  echo "Run scripts/create-cloud-sql.sh first (writes ~/.noticereply-credentials),"
+  echo "or set PG_PASSWORD manually:"
+  echo "  PG_PASSWORD=<pwd> bash scripts/migrate-db.sh"
   exit 1
 fi
 
