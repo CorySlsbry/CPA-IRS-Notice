@@ -1,7 +1,10 @@
 import type { Metadata } from 'next';
 import { Hero } from '@/components/marketing/hero';
+import { LiveDemo } from '@/components/marketing/live-demo';
 import { ValueStack } from '@/components/marketing/value-stack';
 import { HowItWorks } from '@/components/marketing/how-it-works';
+import { CaseStudy } from '@/components/marketing/case-study';
+import { RoiCalculator } from '@/components/marketing/roi-calculator';
 import { CrmShowcase } from '@/components/marketing/crm-showcase';
 import { Comparison } from '@/components/marketing/comparison';
 import { FounderStory } from '@/components/marketing/founder';
@@ -20,8 +23,13 @@ export default function HomePage() {
       <ProductSchema />
       <FaqSchema />
       <Hero />
+      {/* Per Sabrina §20 "user gets value within 90 seconds" rule — public demo right after hero */}
+      <LiveDemo />
+      <CaseStudy />
       <ValueStack />
       <HowItWorks />
+      {/* Per Sabrina §21 "save time / make money" pitch formula — math up front, before pricing */}
+      <RoiCalculator />
       <CrmShowcase />
       <Comparison />
       <FounderStory />
