@@ -6,7 +6,10 @@ export function getStripe(): Stripe {
   if (_stripe) return _stripe;
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) throw new Error('STRIPE_SECRET_KEY missing');
-  _stripe = new Stripe(key, { apiVersion: '2024-11-20.acacia', typescript: true });
+  // Omit apiVersion — let the SDK use the version it was built for. The SDK's
+  // generated types track that version exactly; pinning a different one fights
+  // the type checker.
+  _stripe = new Stripe(key, { typescript: true });
   return _stripe;
 }
 
