@@ -22,7 +22,9 @@ const jetbrains = JetBrains_Mono({
   display: 'swap',
 });
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://noticereply.com';
+// `||` not `??` — empty-string env var (build trigger leaves substitution empty)
+// would otherwise pass through and crash `new URL('')`.
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://noticereply.com';
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),

@@ -46,11 +46,8 @@ const config: NextConfig = {
     serverActions: { bodySizeLimit: '10mb' },
   },
   serverExternalPackages: ['firebase-admin', 'pg'],
-  // Don't fail the production build on lint or type warnings — we run those
-  // separately via `npm run lint` / `npm run typecheck`. This keeps Cloud
-  // Build deploys unblocked when there's a known lint warning we haven't
-  // gotten to.
-  eslint: { ignoreDuringBuilds: true },
+  // Next 16 removed the `eslint` config option. Lint runs only via the
+  // standalone `eslint` CLI (npm run lint), not during `next build`.
   typescript: { ignoreBuildErrors: true },
 };
 
