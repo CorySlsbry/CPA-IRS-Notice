@@ -17,11 +17,20 @@ import { Pool, type PoolClient } from 'pg';
 
 let _pool: Pool | null = null;
 
+/**
+ * Returns the Pool, lazily constructing it on first use. We deliberately do
+ * NOT throw at module-import time, because Next.js evaluates server modules
+ * at build/prerender time when DATABASE_URL is intentionally absent. The
+ * error is deferred until an actual query — which the (app) routes only
+ * reach at request time, after Cloud Run has injected the secret.
+ */
 export function getPool(): Pool {
   if (_pool) return _pool;
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
-    throw new Error('DATABASE_URL missing — set it to your Cloud SQL Postgres connection string');
+    throw new Error(
+      'DATABASE_URL missing — set it via Secret Manager (production) or .env.local (dev)',
+    );
   }
   _pool = new Pool({
     connectionString,

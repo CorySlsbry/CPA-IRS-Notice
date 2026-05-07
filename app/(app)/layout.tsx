@@ -5,6 +5,11 @@ import { Activity, FileText, Inbox, LayoutDashboard, Mail, Network, Settings, Ta
 import { cn } from '@/lib/utils';
 import { LogoutButton } from './logout-button';
 
+// The (app) route group is auth-gated and reads from the DB on every render.
+// Force dynamic so Next.js doesn't try to statically prerender at build time
+// (DATABASE_URL is intentionally absent during build).
+export const dynamic = 'force-dynamic';
+
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const sb = await createSupabaseServerClient();
   const { data: { user } } = await sb.auth.getUser();
