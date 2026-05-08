@@ -29,11 +29,6 @@ export async function POST(req: Request) {
   const auth = checkJarvisToken(req);
   if (!auth.ok) return NextResponse.json(auth.body, { status: auth.status });
 
-  const firmId = getJarvisDefaultFirmId();
-  if (!firmId) {
-    return NextResponse.json({ error: 'firm_not_configured' }, { status: 503 });
-  }
-
   let parsed: z.infer<typeof matchSchema>;
   try {
     parsed = matchSchema.parse(await req.json());
@@ -46,6 +41,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'unknown_vertical', vertical: verticalParam }, { status: 400 });
   }
   const vertical: Vertical | null = (verticalParam as Vertical | undefined) ?? null;
+
+  const firmId = getJarvisDefaultFirmId();
+  if (!firmId) {
+    return NextResponse.json({ error: 'firm_not_configured' }, { status: 503 });
+  }
 
   let firstName = parsed.first_name ?? null;
   let lastName = parsed.last_name ?? null;

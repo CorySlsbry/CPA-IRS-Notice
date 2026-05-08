@@ -60,14 +60,6 @@ export async function POST(req: Request) {
   const auth = checkJarvisToken(req);
   if (!auth.ok) return NextResponse.json(auth.body, { status: auth.status });
 
-  const firmId = getJarvisDefaultFirmId();
-  if (!firmId) {
-    return NextResponse.json(
-      { error: 'firm_not_configured', detail: 'Set JARVIS_DEFAULT_FIRM_ID or MARKETING_FIRM_ID secret to the target firm UUID.' },
-      { status: 503 },
-    );
-  }
-
   let parsed: z.infer<typeof postBodySchema>;
   try {
     parsed = postBodySchema.parse(await req.json());
@@ -79,6 +71,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'unknown_vertical', vertical: parsed.vertical }, { status: 400 });
   }
   const vertical: Vertical = parsed.vertical;
+
+  const firmId = getJarvisDefaultFirmId();
+  if (!firmId) {
+    return NextResponse.json(
+      { error: 'firm_not_configured', detail: 'Set JARVIS_DEFAULT_FIRM_ID or MARKETING_FIRM_ID secret to the target firm UUID.' },
+      { status: 503 },
+    );
+  }
 
   if (!parsed.contact.email && !parsed.contact.phone && !parsed.apollo_person_id) {
     return NextResponse.json({ error: 'missing_identity', detail: 'one of contact.email, contact.phone, or apollo_person_id required' }, { status: 400 });
