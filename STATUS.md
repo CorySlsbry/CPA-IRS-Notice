@@ -49,23 +49,41 @@ In rough priority order:
 
 ### 1. Firebase (the hard blocker on auth)
 
-1. Go to https://console.firebase.google.com/
-2. Create new project → use existing GCP project `salisbury-bookkeeping`
-3. Disable Google Analytics (we have our own)
-4. Build → Authentication → Get started → Sign-in method → Email/Password → Enable
-5. Settings → Your apps → `</>` (web) → name "NoticeReply" → Register
-6. **Copy the `firebaseConfig = {…}` block** (apiKey, authDomain, projectId, appId)
-7. Go to https://console.cloud.google.com/run/detail/us-west3/cpa-irs-notification/yaml/edit?project=salisbury-bookkeeping
-   - Add 4 env vars as PUBLIC env vars (NOT secrets):
-     - `NEXT_PUBLIC_FIREBASE_API_KEY=<apiKey>`
-     - `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=<authDomain>`
-     - `NEXT_PUBLIC_FIREBASE_PROJECT_ID=salisbury-bookkeeping`
-     - `NEXT_PUBLIC_FIREBASE_APP_ID=<appId>`
-8. Settings → Service accounts → Generate new private key → JSON downloads
-9. Open downloaded JSON → copy contents → paste into `FIREBASE_SERVICE_ACCOUNT` secret:
-   https://console.cloud.google.com/security/secret-manager/secret/FIREBASE_SERVICE_ACCOUNT/versions?project=salisbury-bookkeeping
+**Project already exists:** `salisbury-bookkeeping-b930a` (Firebase auto-suffixed because the GCP project ID was taken).
+**Browser tabs already open** at the right pages. ~5 min total.
 
-After this you can sign up at `https://cpa-irs-notification-acpw7bvkuq-wm.a.run.app/signup` and the dashboard will work.
+#### A. Click through Firebase (you):
+1. Open the Firebase tab — should be on `Project settings → General`
+2. Scroll to **"Your apps"** section → click **`</>`** (the **`Add Firebase to your Web app`** button — found by the agent at `ref_143`)
+3. App nickname: **`NoticeReply`** → uncheck "Also set up Firebase Hosting" → click **Register app**
+4. You'll see a `firebaseConfig = {…}` block. **Copy these 4 values exactly:**
+   - `apiKey` → starts with `AIzaSy...`
+   - `authDomain` → `salisbury-bookkeeping-b930a.firebaseapp.com`
+   - `projectId` → `salisbury-bookkeeping-b930a`
+   - `appId` → starts with `1:687855643285:web:...`
+5. Click **Continue to console**
+6. Project settings → **Service accounts** tab → **Generate new private key** → confirm. **JSON downloads to your Downloads folder.**
+7. Left nav → **Build → Authentication → Get started** (or open https://console.firebase.google.com/u/0/project/salisbury-bookkeeping-b930a/authentication/providers)
+8. Click **Email/Password** → toggle **Enable** → **Save**
+
+#### B. Run one PowerShell command (the agent built this script):
+```powershell
+cd C:\Users\Cory\Downloads\noticereply
+git pull origin main
+.\scripts\finish-firebase.ps1 `
+  -ApiKey "AIzaSy..." `
+  -AuthDomain "salisbury-bookkeeping-b930a.firebaseapp.com" `
+  -ProjectId "salisbury-bookkeeping-b930a" `
+  -AppId "1:687855643285:web:..." `
+  -ServiceAccountPath "C:\Users\Cory\Downloads\salisbury-bookkeeping-b930a-firebase-adminsdk-XXXXX.json"
+```
+
+That script:
+- Uploads the service account JSON to `FIREBASE_SERVICE_ACCOUNT` secret
+- Sets the 4 `NEXT_PUBLIC_FIREBASE_*` env vars on Cloud Run in one update
+- Triggers the new revision
+
+After it succeeds, sign up at `https://cpa-irs-notification-acpw7bvkuq-wm.a.run.app/signup`. The dashboard works end-to-end after that.
 
 ### 2. Stripe (for billing)
 
