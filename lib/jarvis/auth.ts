@@ -1,19 +1,29 @@
 /**
- * Bearer-token auth for /api/integrations/jarvis/*. The token is rotated
- * out-of-band — Jarvis side has its own JARVIS_INGEST_TOKEN env var that
- * must match.
+ * Token auth for /api/integrations/jarvis/*. Accepts EITHER:
+ *   - `X-Jarvis-Token: <token>` (preferred)
+ *   - `Authorization: Bearer <token>` (back-compat with original spec)
+ *
+ * Why both: Cloud Run's frontend proxy intercepts requests carrying
+ * `Authorization: Bearer ...` when the token doesn't validate as a Google
+ * ID token, returning 502 BEFORE the container sees the request — even
+ * with allUsers/run.invoker on the service. The custom header routes
+ * around this entirely.
  */
-
-export function checkJarvisToken(req: Request): { ok: true } | { ok: false; status: number; body: { error: string } } {
+export function checkJarvisToken(
+  req: Request,
+): { ok: true } | { ok: false; status: number; body: Record<string, unknown> } {
   const expected = process.env.JARVIS_INGEST_TOKEN;
   if (!expected) {
     return { ok: false, status: 503, body: { error: 'jarvis_token_not_configured' } };
   }
-  const auth = req.headers.get('authorization');
-  if (!auth || !auth.startsWith('Bearer ')) {
-    return { ok: false, status: 401, body: { error: 'missing_bearer' } };
+  const fromCustom = req.headers.get('x-jarvis-token');
+  const fromAuth = req.headers.get('authorization');
+  let token: string | null = null;
+  if (fromCustom) token = fromCustom.trim();
+  else if (fromAuth && fromAuth.startsWith('Bearer ')) token = fromAuth.slice('Bearer '.length).trim();
+  if (!token) {
+    return { ok: false, status: 401, body: { error: 'missing_token', detail: 'send X-Jarvis-Token header' } };
   }
-  const token = auth.slice('Bearer '.length).trim();
   if (token !== expected) {
     return { ok: false, status: 401, body: { error: 'invalid_token' } };
   }
