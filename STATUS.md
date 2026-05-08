@@ -2,6 +2,78 @@
 
 > Last updated: 2026-05-08 by autonomous Cory-authorized session
 
+---
+
+## 🆕 Jarvis lead-ingestion endpoints — LIVE
+
+Three endpoints under `/api/integrations/jarvis/` are deployed and tested. Send these to upstream Jarvis to wire the client side:
+
+**Base URL:** `https://cpa-irs-notification-acpw7bvkuq-wm.a.run.app`
+
+**Auth header:** `X-Jarvis-Token: <token>`
+- ⚠️ NOT `Authorization: Bearer …` — Cloud Run's edge proxy intercepts that for its own IAM auth, returning 502 before the container sees the request. The custom header bypasses that.
+- The route still ALSO accepts `Authorization: Bearer <token>` as a fallback for spec-compatibility, but use the custom header to avoid the edge interception risk.
+
+**Token name in Secret Manager:** `JARVIS_INGEST_TOKEN` (project `salisbury-bookkeeping`)
+
+**Routes:**
+- `POST /api/integrations/jarvis/leads` — create/merge contact + apply tags + create lead row (transactional, exactly the spec contract)
+- `POST /api/integrations/jarvis/leads/match` — read-only dedup probe (p99 budget 100ms; partial unique indexes per signal)
+- `GET  /api/integrations/jarvis/leads?email=…` (Mode A) | `?contact_id=…` (Mode B) | `?since=…&cursor=…&limit=…` (Mode C)
+
+**Vertical Routing implemented:**
+```ts
+cpa_irs_notices: {
+  triggerTag: 'cpa-irs-cold-queue',
+  stopTags:   ['cpa-irs-booked-call', 'cpa-irs-client', 'cpa-irs-lost', 'do-not-contact'],
+  bandTags:   { short: 'cpa-irs-cold-queue', long: 'cpa-irs-short-nurture-complete', evergreen: 'cpa-irs-long-nurture-complete' },
+}
+```
+
+**Workflow chain (auto-installed for every new firm via `seed_starter_assets`):**
+1. `CPA cold push — Short (14d)` — trigger `cpa-irs-cold-queue` → applies `cpa-irs-short-nurture-complete` at end
+2. `CPA cold push — Long (90d)` — trigger `cpa-irs-short-nurture-complete` → applies `cpa-irs-long-nurture-complete` at end
+3. `CPA cold push — Evergreen (quarterly)` — trigger `cpa-irs-long-nurture-complete`
+
+The chain is internal-driven via tag completion exactly as the spec describes. To get the actual workflow UUIDs after Cory signs up:
+```sql
+select name, id from workflows where firm_id = '<your-firm-id>' and name like 'CPA cold push%';
+```
+
+**`normalize_company` suffix list** (must match Jarvis verbatim):
+```
+corporation, enterprises, holdings, services, company, p.c., p.a., group, corp, llc, llp, ltd, inc, pa, pc, co
+```
+(Each suffix is matched case-insensitive with optional trailing dot.)
+
+**DB columns added to `contacts`:** `email_normalized` (citext), `phone_digits` (text), `linkedin_url` (text), `linkedin_normalized` (text), `name_company_key` (text), `apollo_person_id` (text), `external_id` (text), `jarvis_dedup_qualifiers` (jsonb), `company_name_at_capture` (text). All maintained via `BEFORE INSERT/UPDATE` trigger.
+
+**New `leads` table** with one row per Jarvis push (per-call attribution as spec'd).
+
+**Indexes:** 4 partial unique indexes scoped per `firm_id` × dedup signal (email_normalized | phone_digits | name_company_key | linkedin_normalized). p99 lookups are Index Scans.
+
+**Migration backfilled:** No collisions on unique indexes (no pre-existing contact rows yet — the schema started clean).
+
+**Spec deviations to flag back to Jarvis:**
+1. Auth header is `X-Jarvis-Token` (Bearer also accepted but DO NOT rely on it — Cloud Run intercepts).
+2. Unique indexes are scoped per `firm_id` (multi-tenant safe). Spec implied global unique. Match unaffected since lead ingestion targets a single firm.
+3. The `vertical_context.trigger_tag_applied` field in `/match` reflects whether the trigger tag is currently on the contact (i.e. they've been pushed before), not the success of the most recent push. The PER-PUSH success state is on the `leads` row's `trigger_tag_applied` column.
+
+**Last gate before fully functional:** `JARVIS_DEFAULT_FIRM_ID` secret is currently a placeholder. After Cory signs up:
+```bash
+# Find his firm UUID
+gcloud sql connect noticereply --user=postgres --database=noticereply --project=salisbury-bookkeeping
+# in psql: select id, name from firms order by created_at desc limit 5;
+
+# Update the secret
+printf '<the-uuid>' | gcloud secrets versions add JARVIS_DEFAULT_FIRM_ID --data-file=- --project=salisbury-bookkeeping
+printf '<the-uuid>' | gcloud secrets versions add MARKETING_FIRM_ID --data-file=- --project=salisbury-bookkeeping  # also cover the lead-magnet pipe
+```
+
+Cloud Run picks up the new secret value on next cold start automatically (no redeploy needed for secrets, since they're mounted as env from secret manager with `:latest`).
+
+---
+
 ## What's live on Cloud Run RIGHT NOW
 
 **URL:** https://cpa-irs-notification-acpw7bvkuq-wm.a.run.app
