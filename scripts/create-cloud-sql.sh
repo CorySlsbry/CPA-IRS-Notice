@@ -45,6 +45,8 @@ echo "Credentials saved to ~/.noticereply-credentials (chmod 600)"
 echo
 
 echo "▸ Creating Cloud SQL instance (5-10 min)..."
+# Public IP enabled (default) with no authorized networks. Connection only
+# via Cloud SQL Auth Proxy — secure, standard Cloud Run pattern.
 gcloud sql instances create "$INSTANCE" \
   --database-version=POSTGRES_16 \
   --tier=db-g1-small \
@@ -54,7 +56,6 @@ gcloud sql instances create "$INSTANCE" \
   --storage-size=10 \
   --no-storage-auto-increase \
   --backup-start-time=09:00 \
-  --no-assign-ip \
   --availability-type=zonal \
   --root-password="$ROOT_PASSWORD" \
   --project="$PROJECT"

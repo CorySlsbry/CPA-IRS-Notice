@@ -1,13 +1,23 @@
 # NoticeReply — create the cheapest viable Cloud SQL Postgres instance.
 #
-# PowerShell version of create-cloud-sql.sh — no bash dependency.
+# PowerShell version. No bash dependency.
 #
 # Run from the repo root:
 #   PS> .\scripts\create-cloud-sql.ps1
 #
 # Tier breakdown (us-west3, monthly est.):
-#   db-g1-small Enterprise + 10GB SSD + daily backup + no HA + no PITR + no public IP
-#   approx $25/month total.
+#   db-g1-small Enterprise + 10GB SSD + Public IP w/ no authorized networks
+#   + daily backup + no HA + no PITR ≈ $25/mo total.
+#
+# Public IP note: Public IP is enabled but with NO authorized networks.
+# That means no one on the internet can connect — the only access path is
+# via Cloud SQL Auth Proxy (Cloud Run uses the proxy automatically when you
+# pass --add-cloudsql-instances at deploy). This is the standard Cloud Run
+# + Cloud SQL pattern; using Private IP requires VPC + Service Networking
+# peering setup which is heavier.
+#
+# Idempotent: if $HOME\.noticereply-credentials already exists, re-uses
+# the saved passwords instead of generating new ones. Safe to re-run.
 
 $ErrorActionPreference = 'Stop'
 
@@ -16,7 +26,6 @@ $Region  = 'us-west3'
 $Instance = 'noticereply'
 
 function New-StrongPassword {
-  # 32 chars from a safe-for-shell-and-postgres alphabet (no $ ` ' " \)
   $bytes = New-Object byte[] 48
   [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
   $b64 = [Convert]::ToBase64String($bytes)
@@ -24,17 +33,31 @@ function New-StrongPassword {
   return $clean.Substring(0, 32)
 }
 
-$RootPassword = New-StrongPassword
-$AppPassword  = New-StrongPassword
+function Read-CredentialField($file, $field) {
+  $line = Select-String -Path $file -Pattern "^$field=" -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($line) { return $line.Line.Substring("$field=".Length) }
+  return $null
+}
 
-Write-Host ""
-Write-Host "Generated root password: $RootPassword" -ForegroundColor Yellow
-Write-Host "Generated app  password: $AppPassword" -ForegroundColor Yellow
-Write-Host ""
-Write-Host "SAVE BOTH. Also written to `$HOME\.noticereply-credentials" -ForegroundColor Yellow
-
-# Save credentials to a user-only file
 $CredFile = Join-Path $HOME '.noticereply-credentials'
+
+# Reuse existing credentials if present (idempotent re-runs)
+$ExistingRoot = if (Test-Path $CredFile) { Read-CredentialField $CredFile 'CLOUDSQL_ROOT_PASSWORD' } else { $null }
+$ExistingApp  = if (Test-Path $CredFile) { Read-CredentialField $CredFile 'CLOUDSQL_APP_PASSWORD' } else { $null }
+
+$RootPassword = if ($ExistingRoot) { $ExistingRoot } else { New-StrongPassword }
+$AppPassword  = if ($ExistingApp)  { $ExistingApp }  else { New-StrongPassword }
+
+if ($ExistingRoot -and $ExistingApp) {
+  Write-Host "Re-using credentials from $CredFile (idempotent re-run)." -ForegroundColor Yellow
+} else {
+  Write-Host ""
+  Write-Host "Generated root password: $RootPassword" -ForegroundColor Yellow
+  Write-Host "Generated app  password: $AppPassword" -ForegroundColor Yellow
+  Write-Host ""
+  Write-Host "SAVE BOTH. Also written to $CredFile" -ForegroundColor Yellow
+}
+
 $ConnName = "${Project}:${Region}:${Instance}"
 $DatabaseUrl = "postgres://app:${AppPassword}@/noticereply?host=/cloudsql/${ConnName}"
 
@@ -49,7 +72,7 @@ CLOUDSQL_APP_PASSWORD=$AppPassword
 DATABASE_URL=$DatabaseUrl
 "@ | Out-File -FilePath $CredFile -Encoding utf8 -Force
 
-# Restrict to current user only (Windows ACL — drop inherited rights)
+# Restrict ACL to current user
 try {
   $acl = Get-Acl $CredFile
   $acl.SetAccessRuleProtection($true, $false)
@@ -60,47 +83,60 @@ try {
 } catch {
   Write-Warning "Could not lock down ACL on credentials file: $_"
 }
-
-Write-Host "Credentials saved to: $CredFile" -ForegroundColor Green
+Write-Host "Credentials file:  $CredFile" -ForegroundColor Green
 Write-Host ""
 
-# ─── Step 1: Create the Cloud SQL instance (5-10 min) ────────────────────────
-Write-Host "[1/4] Creating Cloud SQL instance noticereply (5-10 min)..." -ForegroundColor Cyan
-gcloud sql instances create $Instance `
-  --database-version=POSTGRES_16 `
-  --tier=db-g1-small `
-  --edition=ENTERPRISE `
-  --region=$Region `
-  --storage-type=SSD `
-  --storage-size=10 `
-  --no-storage-auto-increase `
-  --backup-start-time=09:00 `
-  --no-assign-ip `
-  --availability-type=zonal `
-  --root-password=$RootPassword `
-  --project=$Project
-if ($LASTEXITCODE -ne 0) { throw "Cloud SQL instance creation failed" }
+# ─── Step 1: Create the Cloud SQL instance (skip if exists) ──────────────────
+Write-Host "[1/4] Cloud SQL instance noticereply..." -ForegroundColor Cyan
+$existsCheck = gcloud sql instances describe $Instance --project=$Project --format='value(name)' 2>$null
+if ($LASTEXITCODE -eq 0 -and $existsCheck) {
+  Write-Host "  already exists, skipping create." -ForegroundColor Yellow
+} else {
+  Write-Host "  creating (5-10 min)..." -ForegroundColor Cyan
+  # Public IP enabled (default) with no authorized networks. Connection
+  # only via Cloud SQL Auth Proxy — secure, standard Cloud Run pattern.
+  gcloud sql instances create $Instance `
+    --database-version=POSTGRES_16 `
+    --tier=db-g1-small `
+    --edition=ENTERPRISE `
+    --region=$Region `
+    --storage-type=SSD `
+    --storage-size=10 `
+    --no-storage-auto-increase `
+    --backup-start-time=09:00 `
+    --availability-type=zonal `
+    --root-password=$RootPassword `
+    --project=$Project
+  if ($LASTEXITCODE -ne 0) { throw "Cloud SQL instance creation failed" }
+}
 
-# ─── Step 2: Create the noticereply database ─────────────────────────────────
+# ─── Step 2: Create the noticereply database (idempotent) ───────────────────
 Write-Host ""
-Write-Host "[2/4] Creating database 'noticereply'..." -ForegroundColor Cyan
-gcloud sql databases create noticereply --instance=$Instance --project=$Project
-if ($LASTEXITCODE -ne 0) { throw "Database creation failed" }
+Write-Host "[2/4] Database 'noticereply'..." -ForegroundColor Cyan
+$dbCheck = gcloud sql databases describe noticereply --instance=$Instance --project=$Project --format='value(name)' 2>$null
+if ($LASTEXITCODE -eq 0 -and $dbCheck) {
+  Write-Host "  already exists, skipping." -ForegroundColor Yellow
+} else {
+  gcloud sql databases create noticereply --instance=$Instance --project=$Project
+  if ($LASTEXITCODE -ne 0) { throw "Database creation failed" }
+}
 
-# ─── Step 3: Create the app user ─────────────────────────────────────────────
+# ─── Step 3: Create the app user (idempotent) ───────────────────────────────
 Write-Host ""
-Write-Host "[3/4] Creating app user (least privilege)..." -ForegroundColor Cyan
-gcloud sql users create app `
-  --instance=$Instance `
-  --password=$AppPassword `
-  --project=$Project
-if ($LASTEXITCODE -ne 0) { throw "App user creation failed" }
+Write-Host "[3/4] App user (least privilege)..." -ForegroundColor Cyan
+$appUserCheck = gcloud sql users list --instance=$Instance --project=$Project --filter='name=app' --format='value(name)' 2>$null
+if ($appUserCheck -match 'app') {
+  Write-Host "  already exists; updating password to match credentials file." -ForegroundColor Yellow
+  gcloud sql users set-password app --instance=$Instance --password=$AppPassword --project=$Project
+  if ($LASTEXITCODE -ne 0) { throw "App user password update failed" }
+} else {
+  gcloud sql users create app --instance=$Instance --password=$AppPassword --project=$Project
+  if ($LASTEXITCODE -ne 0) { throw "App user creation failed" }
+}
 
-# ─── Step 4: Write DATABASE_URL secret ───────────────────────────────────────
+# ─── Step 4: Write DATABASE_URL secret ──────────────────────────────────────
 Write-Host ""
 Write-Host "[4/4] Writing DATABASE_URL to Secret Manager..." -ForegroundColor Cyan
-
-# Pipe the URL through stdin so it never appears in shell args / history
 $tmp = [System.IO.Path]::GetTempFileName()
 [System.IO.File]::WriteAllText($tmp, $DatabaseUrl, (New-Object System.Text.UTF8Encoding($false)))
 gcloud secrets versions add DATABASE_URL --data-file=$tmp --project=$Project
@@ -115,4 +151,4 @@ Write-Host "Database:        noticereply"
 Write-Host "App user:        app"
 Write-Host "Passwords:       saved to $CredFile"
 Write-Host ""
-Write-Host "Next: .\scripts\migrate-db.ps1   (or bash scripts/migrate-db.sh from Git Bash)" -ForegroundColor Yellow
+Write-Host "Next: .\scripts\migrate-db.ps1   (after Cloud SQL state turns Runnable)" -ForegroundColor Yellow
