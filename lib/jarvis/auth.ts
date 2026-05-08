@@ -20,9 +20,18 @@ export function checkJarvisToken(req: Request): { ok: true } | { ok: false; stat
   return { ok: true };
 }
 
-/** Resolve the firm_id Jarvis leads land in. Single-tenant for now. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Resolve the firm_id Jarvis leads land in. Single-tenant for now.
+ * Validates UUID format so a placeholder ("TODO_set_after_first_signup")
+ * doesn't pass through and explode at the SQL layer with a cast error.
+ */
 export function getJarvisDefaultFirmId(): string | null {
-  return process.env.JARVIS_DEFAULT_FIRM_ID ?? process.env.MARKETING_FIRM_ID ?? null;
+  const raw = process.env.JARVIS_DEFAULT_FIRM_ID ?? process.env.MARKETING_FIRM_ID ?? null;
+  if (!raw) return null;
+  if (!UUID_RE.test(raw)) return null;
+  return raw;
 }
 
 /** Stop tags per vertical — operator-curated. */
